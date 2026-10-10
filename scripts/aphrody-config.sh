@@ -3,7 +3,10 @@
 set -eu
 
 profile=${1:-generic}
-case "$profile" in generic|nvidia) ;; *) echo "expected generic or nvidia" >&2; exit 2 ;; esac
+case "$profile" in
+    generic|nvidia|wsl) ;;
+    *) echo "expected generic, nvidia or wsl" >&2; exit 2 ;;
+esac
 : "${KBUILD_OUTPUT:?set KBUILD_OUTPUT to an absolute build directory}"
 case "$KBUILD_OUTPUT" in /*) ;; *) echo "KBUILD_OUTPUT must be absolute" >&2; exit 2 ;; esac
 case "${ARCH:-x86_64}" in
@@ -14,7 +17,15 @@ esac
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 mkdir -p "$KBUILD_OUTPUT"
 make -C "$root" O="$KBUILD_OUTPUT" ARCH="$arch" LLVM=1 rustavailable
-make -C "$root" O="$KBUILD_OUTPUT" ARCH="$arch" LLVM=1 defconfig
+if [ "$profile" = wsl ]; then
+    case "$arch" in
+        x86) base=config-wsl ;;
+        arm64) base=config-wsl-arm64 ;;
+    esac
+    cp "$root/Microsoft/$base" "$KBUILD_OUTPUT/.config"
+else
+    make -C "$root" O="$KBUILD_OUTPUT" ARCH="$arch" LLVM=1 defconfig
+fi
 awk -v carch="$carch" '
     /^# @arch / {
         n=split(substr($0, 9), a, " ")
@@ -31,6 +42,9 @@ awk -v carch="$carch" '
 ' "$root/kernel/configs/aphrody-bun.config" > "$KBUILD_OUTPUT/aphrody.fragment"
 if [ "$profile" = nvidia ]; then
     cat "$root/kernel/configs/aphrody-nvidia.config" >> "$KBUILD_OUTPUT/aphrody.fragment"
+fi
+if [ "$profile" = wsl ]; then
+    cat "$root/kernel/configs/aphrody-wsl.config" >> "$KBUILD_OUTPUT/aphrody.fragment"
 fi
 KCONFIG_CONFIG="$KBUILD_OUTPUT/.config" \
     "$root/scripts/kconfig/merge_config.sh" -m -O "$KBUILD_OUTPUT" \
